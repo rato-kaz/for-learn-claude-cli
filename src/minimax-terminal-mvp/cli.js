@@ -67,14 +67,18 @@ function extractTextDelta(event) {
   return typeof delta === 'string' ? delta : ''
 }
 
-function extractToolCallsFromFinal(payload) {
-  const tc = payload?.choices?.[0]?.message?.tool_calls
+function extractToolCallsFromEvent(event) {
+  const tc =
+    event?.choices?.[0]?.delta?.tool_calls ||
+    event?.choices?.[0]?.message?.tool_calls ||
+    event?.tool_calls
   return Array.isArray(tc) ? tc : []
 }
 
 async function streamCompletion(provider, payload, onDelta) {
   const res = await provider.chatCompletions({ ...payload, stream: true })
   let acc = ''
+  const toolCallMap = new Map()
   let buffer = ''
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
@@ -88,9 +92,22 @@ async function streamCompletion(provider, payload, onDelta) {
         acc += t
         onDelta(t)
       }
+      const tcs = extractToolCallsFromEvent(event)
+      for (const tc of tcs) {
+        const idx = Number(tc?.index ?? 0)
+        const curr = toolCallMap.get(idx) || {
+          id: tc?.id,
+          type: tc?.type || 'function',
+          function: { name: '', arguments: '' },
+        }
+        if (tc?.id) curr.id = tc.id
+        if (tc?.function?.name) curr.function.name += tc.function.name
+        if (tc?.function?.arguments) curr.function.arguments += tc.function.arguments
+        toolCallMap.set(idx, curr)
+      }
     })
   }
-  return acc
+  return { text: acc, toolCalls: [...toolCallMap.values()] }
 }
 
 async function runAssistantTurn({ provider, toolRuntime, messages, config }) {
@@ -101,16 +118,12 @@ async function runAssistantTurn({ provider, toolRuntime, messages, config }) {
     max_tokens: config.max_tokens,
   }
 
-  const text = await streamCompletion(provider, payload, (d) => stdout.write(d))
+  const streamed = await streamCompletion(provider, payload, (d) => stdout.write(d))
   stdout.write('\n')
-
-  const nonStream = await provider.chatCompletions({
-    ...payload,
-    stream: false,
-  })
-  const toolCalls = extractToolCallsFromFinal(nonStream.data)
+  const text = streamed.text
+  const toolCalls = streamed.toolCalls
   if (!toolCalls.length) {
-    return [{ role: 'assistant', content: text || '(no content)' }]
+    return [{ role: 'assistant', content: text || '(empty response)' }]
   }
 
   const appended = []
@@ -120,16 +133,27 @@ async function runAssistantTurn({ provider, toolRuntime, messages, config }) {
     tool_calls: toolCalls,
   })
 
-  for (const tc of toolCalls) {
+  for (const [i, tc] of toolCalls.entries()) {
     const result = await toolRuntime.executeToolCall(tc)
     appended.push({
       role: 'tool',
-      tool_call_id: tc.id || tc.function?.name || 'tool-call',
+      tool_call_id:
+        tc.id ||
+        `${tc.function?.name || 'tool'}-${Date.now()}-${i + 1}`,
       name: tc.function?.name || 'tool',
       content: JSON.stringify(result),
     })
   }
   return appended
+}
+
+async function isValidWorkspace(p) {
+  try {
+    const st = await fs.stat(p)
+    return st.isDirectory()
+  } catch {
+    return false
+  }
 }
 
 function printHelp() {
@@ -169,14 +193,16 @@ async function main() {
     while (true) {
       const input = (await rl.question('\n> ')).trim()
       if (!input) continue
+      const [cmd, ...rest] = input.split(/\s+/)
+      const arg = rest.join(' ').trim()
 
       if (input === '/exit') break
       if (input === '/help') {
         printHelp()
         continue
       }
-      if (input.startsWith('/model')) {
-        const next = input.replace('/model', '').trim()
+      if (cmd === '/model') {
+        const next = arg
         if (next) {
           config.model = next
           await writeJson(CONFIG_PATH, config)
@@ -190,11 +216,15 @@ async function main() {
         stdout.write(`${JSON.stringify(config, null, 2)}\n`)
         continue
       }
-      if (input.startsWith('/workspace')) {
-        const p = input.replace('/workspace', '').trim()
+      if (cmd === '/workspace') {
+        const p = arg
         if (p) {
           if (!path.isAbsolute(p)) {
             stdout.write('workspace path must be absolute\n')
+            continue
+          }
+          if (!(await isValidWorkspace(p))) {
+            stdout.write('workspace path must exist and be a directory\n')
             continue
           }
           config.workspace = p
@@ -225,4 +255,3 @@ main().catch((e) => {
   stdout.write(`Fatal: ${e instanceof Error ? e.message : String(e)}\n`)
   process.exit(1)
 })
-

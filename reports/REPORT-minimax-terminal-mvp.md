@@ -6,12 +6,12 @@ Tạo một công cụ AI chạy terminal dùng model riêng **Minimax M2.7**, t
 
 ## Thành phần đã thêm
 
-- `/home/runner/work/for-learn-claude-cli/for-learn-claude-cli/src/minimax-terminal-mvp/minimaxProvider.js`
+- `src/minimax-terminal-mvp/minimaxProvider.js`
   - Provider Minimax (endpoint, auth, timeout, stream/non-stream)
-- `/home/runner/work/for-learn-claude-cli/for-learn-claude-cli/src/minimax-terminal-mvp/toolRuntime.js`
+- `src/minimax-terminal-mvp/toolRuntime.js`
   - Tool runtime an toàn: `read_file`, `write_file`, `search_text`, `run_bash`
   - Giới hạn thao tác trong workspace, có confirm cho thao tác rủi ro
-- `/home/runner/work/for-learn-claude-cli/for-learn-claude-cli/src/minimax-terminal-mvp/cli.js`
+- `src/minimax-terminal-mvp/cli.js`
   - CLI chat loop, streaming output, history, slash commands cơ bản
   - Tool-call loop: model -> tool call -> execute -> gửi kết quả lại context
 
@@ -30,7 +30,7 @@ export MINIMAX_MODEL="MiniMax-M2.7"
 2. Chạy CLI:
 
 ```bash
-node /home/runner/work/for-learn-claude-cli/for-learn-claude-cli/src/minimax-terminal-mvp/cli.js
+node src/minimax-terminal-mvp/cli.js
 ```
 
 3. Slash commands hỗ trợ:
@@ -52,4 +52,3 @@ node /home/runner/work/for-learn-claude-cli/for-learn-claude-cli/src/minimax-ter
 - Mapping format tool-call của Minimax có thể cần tinh chỉnh theo payload thực tế từ tài khoản của bạn.
 - Chưa có plugin/MCP/memory dài hạn/multi-agent.
 - Chưa có bộ test tự động do repo hiện tại thiếu cấu hình build/test runner ở root.
-
